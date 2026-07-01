@@ -1,0 +1,184 @@
+@page "/asset/{Id:int}"
+@rendermode InteractiveServer
+@inject IServiceScopeFactory ScopeFactory
+
+<PageTitle>@(_asset?.Name ?? "Asset") — EcoTrack</PageTitle>
+
+@if (_isLoading)
+{
+    <div class="text-center py-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-3 text-muted">Loading asset details...</p>
+    </div>
+}
+else if (_asset is null)
+{
+    <div class="text-center py-5">
+        <i class="bi bi-exclamation-triangle display-1 text-warning"></i>
+        <h3 class="mt-3">Asset Not Found</h3>
+        <p class="text-muted">The requested asset does not exist or has been removed.</p>
+        <a href="/" class="btn btn-primary mt-2">
+            <i class="bi bi-arrow-left me-1"></i> Back to Dashboard
+        </a>
+    </div>
+}
+else
+{
+    <div class="container-fluid px-0">
+        <!-- Back button -->
+        <a href="/" class="btn btn-outline-secondary mb-3">
+            <i class="bi bi-arrow-left me-1"></i> Back to Dashboard
+        </a>
+
+        <!-- Asset Header Card -->
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col">
+                        <h2 class="fw-bold mb-1">@_asset.Name</h2>
+                        <p class="text-muted mb-0">
+                            <code class="bg-light px-2 py-1 rounded me-2">@_asset.SerialNumber</code>
+                            Created @_asset.CreatedAt.ToString("yyyy-MM-dd HH:mm")
+                        </p>
+                    </div>
+                    <div class="col-auto">
+                        <span class="badge @GetStatusClass(_asset.Status) fs-6 px-3 py-2">@_asset.Status</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Telemetry Cards grouped by Metric -->
+        <div class="mb-4">
+            <h5 class="fw-semibold mb-3">
+                <i class="bi bi-graph-up me-2"></i>Latest Telemetry by Metric
+            </h5>
+            <div class="row g-3">
+                @if (_latestByMetric.Count == 0)
+                {
+                    <div class="col-12">
+                        <div class="card border-0 shadow-sm">
+                            <div class="card-body text-center py-4 text-muted">
+                                <i class="bi bi-clipboard-data display-6 d-block mb-2"></i>
+                                No telemetry records available for this asset.
+                            </div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var kvp in _latestByMetric)
+                    {
+                        <div class="col-md-4 col-lg-3">
+                            <div class="card border-0 shadow-sm h-100">
+                                <div class="card-body text-center py-3">
+                                    <p class="text-muted small text-uppercase fw-semibold mb-1">@kvp.Key</p>
+                                    <h4 class="fw-bold text-primary mb-1">@kvp.Value.MetricValue</h4>
+                                    <small class="text-muted">
+                                        <i class="bi bi-clock me-1"></i>@kvp.Value.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        <!-- Full Telemetry History Table -->
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom py-3">
+                <h5 class="mb-0 fw-semibold">
+                    <i class="bi bi-list-ul me-2"></i>Telemetry History
+                    <span class="badge bg-secondary ms-2">@_telemetryRecords.Count</span>
+                </h5>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-4">Timestamp</th>
+                            <th>Metric</th>
+                            <th class="text-end pe-4">Value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (_telemetryRecords.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="3" class="text-center py-4 text-muted">
+                                    <i class="bi bi-clipboard-data display-6 d-block mb-2"></i>
+                                    No telemetry records available.
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var record in _telemetryRecords)
+                            {
+                                <tr>
+                                    <td class="ps-4 text-muted small">@record.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                    <td><span class="badge bg-light text-dark">@record.MetricName</span></td>
+                                    <td class="text-end pe-4 fw-semibold">@record.MetricValue</td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private Asset? _asset;
+    private List<TelemetryRecord> _telemetryRecords = new();
+    private Dictionary<string, TelemetryRecord> _latestByMetric = new();
+    private bool _isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAssetAsync();
+    }
+
+    private async Task LoadAssetAsync()
+    {
+        _isLoading = true;
+
+        using var scope = ScopeFactory.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        _asset = await context.Assets
+            .AsNoTracking()
+            .Include(a => a.TelemetryRecords)
+            .FirstOrDefaultAsync(a => a.Id == Id);
+
+        if (_asset is not null)
+        {
+            _telemetryRecords = _asset.TelemetryRecords
+                .OrderByDescending(tr => tr.Timestamp)
+                .ToList();
+
+            _latestByMetric = _asset.TelemetryRecords
+                .GroupBy(tr => tr.MetricName)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.OrderByDescending(tr => tr.Timestamp).First());
+        }
+
+        _isLoading = false;
+    }
+
+    private string GetStatusClass(string status) => status switch
+    {
+        "Active" => "bg-success",
+        "Maintenance" => "bg-warning text-dark",
+        "Inactive" => "bg-danger",
+        _ => "bg-secondary"
+    };
+}
