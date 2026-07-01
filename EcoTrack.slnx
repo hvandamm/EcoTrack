@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="EcoTrack.Blazor/EcoTrack.Blazor.csproj" />
+  <Project Path="EcoTrack.Core/EcoTrack.Core.csproj" />
+  <Project Path="EcoTrack.WPF/EcoTrack.WPF.csproj" />
+</Solution>
